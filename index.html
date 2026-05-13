@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Staff Scheduler</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css">
+<style>
+:root {
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f5f4f1;
+  --color-text-primary: #1c1c1a;
+  --color-text-secondary: #6b6b68;
+  --color-text-tertiary: #9a9a97;
+  --color-border-tertiary: rgba(0,0,0,0.12);
+  --color-border-secondary: rgba(0,0,0,0.22);
+  --color-border-primary: rgba(0,0,0,0.38);
+  --color-background-success: #e1f5ee;
+  --color-text-success: #0f6e56;
+  --color-border-success: rgba(15,110,86,0.4);
+  --color-background-info: #e6f1fb;
+  --color-text-info: #185fa5;
+  --color-border-info: rgba(24,95,165,0.4);
+  --color-background-warning: #faeeda;
+  --color-text-warning: #854f0b;
+  --color-border-warning: rgba(186,117,23,0.5);
+  --color-text-danger: #a32d2d;
+  --color-border-danger: rgba(226,75,74,0.5);
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif;
+  background: #edeae5;
+  color: #1c1c1a;
+  min-height: 100vh;
+  padding: 1.5rem;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+#app {
+  max-width: 900px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem 2rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06);
+}
+
+.app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.app-title { font-size: 18px; font-weight: 500; color: #1c1c1a; }
+.app-sub { font-size: 12px; color: #9a9a97; }
+
+button {
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border: 0.5px solid rgba(0,0,0,0.2);
+  border-radius: 8px;
+  background: transparent;
+  color: #1c1c1a;
+  padding: 5px 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+button:hover { background: rgba(0,0,0,0.04); }
+button:active { transform: scale(0.98); }
+
+input {
+  font-family: inherit;
+  font-size: 13px;
+  border: 0.5px solid rgba(0,0,0,0.2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  outline: none;
+  background: #fff;
+  color: #1c1c1a;
+}
+input:focus { border-color: rgba(0,0,0,0.4); }
+
+@media print {
+  body { background: #fff; padding: 0; }
+  #app { box-shadow: none; padding: 0.5rem; border-radius: 0; max-width: none; }
+  .no-print { display: none !important; }
+}
+
+@media (max-width: 640px) {
+  body { padding: 0.5rem; }
+  #app { padding: 1rem; border-radius: 12px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="app-header">
+    <span class="app-title">Staff Scheduler</span>
+    <span class="app-sub">Riverside Park &middot; Menomonee Valley &middot; Washington Park</span>
+  </div>
+
+  <div class="no-print" style="display:flex;align-items:center;gap:6px;margin-bottom:1rem;flex-wrap:wrap;">
+    <button onclick="chWeek(-1)" aria-label="Previous week"><i class="ti ti-chevron-left"></i></button>
+    <span id="wlabel" style="flex:1;text-align:center;font-size:14px;font-weight:500;color:var(--color-text-primary);min-width:160px;"></span>
+    <button onclick="chWeek(1)" aria-label="Next week"><i class="ti ti-chevron-right"></i></button>
+    <button onclick="copyFwd()" id="copy-btn">Copy &rarr; next week</button>
+    <button onclick="exportCSV()" title="Export to CSV (Google Sheets / Excel)"><i class="ti ti-table-export"></i></button>
+    <button onclick="window.print()" title="Print schedule"><i class="ti ti-printer"></i></button>
+    <button onclick="toggleStaff()"><i class="ti ti-users"></i> Staff</button>
+  </div>
+
+  <div id="staff-panel" style="display:none;margin-bottom:1rem;background:var(--color-background-secondary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);padding:1rem;">
+    <p style="font-size:13px;font-weight:500;color:var(--color-text-primary);margin-bottom:10px;">Staff members</p>
+    <div id="staff-list" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input id="new-staff" type="text" placeholder="Staff name…" style="flex:1;" onkeydown="if(event.key==='Enter')addStaff()">
+      <button onclick="addStaff()">Add</button>
+    </div>
+  </div>
+
+  <div id="sched"></div>
+
+</div>
+<script>
+const LOCS=['Riverside Park','Menomonee Valley','Washington Park'];
+const LOC_BG=['var(--color-background-success)','var(--color-background-info)','var(--color-background-warning)'];
+const LOC_FG=['var(--color-text-success)','var(--color-text-info)','var(--color-text-warning)'];
+const WDAYS=[
+  {name:'Tue',time:'12–6 pm'},
+  {name:'Wed',time:'12–6 pm'},
+  {name:'Thu',time:'12–6 pm'},
+  {name:'Fri',time:'12–5 pm'},
+  {name:'Sat',time:'9–3 pm'}
+];
+const ROLES=['Site Lead','Reception','Extra'];
+const RKEYS=['lead','rec','extra'];
+const REQUIRED=['lead','rec'];
+const PAL=['#1D9E75','#7F77DD','#D85A30','#378ADD','#BA7517','#D4537E','#639922','#5DCAA5','#AFA9EC','#F0997B','#888780','#E24B4A'];
+
+let staff=[],schedule={},curWeek=getMon(new Date()),active=null,activePTO=null,spOpen=false;
+
+function getMon(d){
+  const dt=new Date(d),day=dt.getDay();
+  dt.setDate(dt.getDate()-day+(day===0?-6:1));
+  dt.setHours(0,0,0,0);return dt;
+}
+function wk(d){return d.toISOString().slice(0,10);}
+function wDates(mon){
+  return WDAYS.map((_,i)=>{const d=new Date(mon);d.setDate(d.getDate()+i+1);return d;});
+}
+function fmtWk(mon){
+  const ds=wDates(mon);
+  return`${ds[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${ds[4].toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${ds[0].getFullYear()}`;
+}
+function sc(id){const i=staff.findIndex(s=>s.id===id);return i>=0?PAL[i%PAL.length]:'#888';}
+function sn(id){return staff.find(s=>s.id===id)?.name||'';}
+function gA(li,di,rk){return schedule[wk(curWeek)]?.[li]?.[di]?.[rk]||null;}
+function sA(li,di,rk,sid){
+  const w=wk(curWeek);
+  if(!schedule[w])schedule[w]={};
+  if(!schedule[w][li])schedule[w][li]={};
+  if(!schedule[w][li][di])schedule[w][li][di]={};
+  if(sid)schedule[w][li][di][rk]=sid;
+  else delete schedule[w][li][di][rk];
+}
+function getPTO(di){return schedule[wk(curWeek)]?.pto?.[di]||[];}
+function togglePTO(di,sid){
+  const w=wk(curWeek);
+  if(!schedule[w])schedule[w]={};
+  if(!schedule[w].pto)schedule[w].pto={};
+  const curr=[...(schedule[w].pto[di]||[])],idx=curr.indexOf(sid);
+  if(idx>=0)curr.splice(idx,1);else curr.push(sid);
+  schedule[w].pto[di]=curr;
+  save();renderSched();
+}
+function openSlots(li){
+  let n=0;
+  for(let di=0;di<5;di++)REQUIRED.forEach(rk=>{if(!gA(li,di,rk))n++;});
+  return n;
+}
+function totalRequired(){return LOCS.reduce((sum,_,li)=>sum+openSlots(li),0);}
+
+function chWeek(dir){
+  curWeek=new Date(curWeek);
+  curWeek.setDate(curWeek.getDate()+dir*7);
+  active=null;activePTO=null;render();
+}
+function copyFwd(){
+  const w=wk(curWeek),nxt=new Date(curWeek);
+  nxt.setDate(nxt.getDate()+7);
+  schedule[wk(nxt)]=JSON.parse(JSON.stringify(schedule[w]||{}));
+  save();curWeek=nxt;active=null;activePTO=null;render();
+  const b=document.getElementById('copy-btn');
+  if(b){b.textContent='✓ Copied!';setTimeout(()=>{b.textContent='Copy → next week';},1800);}
+}
+function toggleStaff(){
+  spOpen=!spOpen;
+  document.getElementById('staff-panel').style.display=spOpen?'block':'none';
+  renderStaff();
+}
+function addStaff(){
+  const inp=document.getElementById('new-staff'),name=inp.value.trim();
+  if(!name||staff.some(s=>s.name.toLowerCase()===name.toLowerCase()))return;
+  staff.push({id:'s'+Date.now(),name});inp.value='';save();renderStaff();
+}
+function removeStaff(id){
+  staff=staff.filter(s=>s.id!==id);
+  Object.keys(schedule).forEach(wKey=>{
+    const w=schedule[wKey];
+    Object.keys(w).forEach(li=>{
+      if(li==='pto'){
+        if(w.pto)Object.keys(w.pto).forEach(di=>{w.pto[di]=(w.pto[di]||[]).filter(s=>s!==id);});
+      }else if(w[li]){
+        Object.keys(w[li]).forEach(di=>{if(w[li][di])RKEYS.forEach(rk=>{if(w[li][di][rk]===id)delete w[li][di][rk];});});
+      }
+    });
+  });
+  save();renderStaff();renderSched();
+}
+function openPicker(li,di,rk){activePTO=null;active={li,di,rk};renderSched();}
+function closePicker(){active=null;renderSched();}
+function assign(li,di,rk,sid){sA(li,di,rk,sid||null);save();active=null;renderSched();}
+function openPTOPicker(di){active=null;activePTO=di;renderSched();}
+function closePTOPicker(){activePTO=null;renderSched();}
+
+function exportCSV(){
+  const dates=wDates(curWeek);
+  const hdr=['"Location"','"Role"',...dates.map((d,i)=>`"${WDAYS[i].name} ${d.toLocaleDateString('en-US',{month:'numeric',day:'numeric'})} ${WDAYS[i].time}"`)];
+  const rows=[hdr.join(',')];
+  LOCS.forEach((loc,li)=>RKEYS.forEach((rk,ri)=>{
+    const cells=[`"${loc}"`,`"${ROLES[ri]}"`];
+    for(let di=0;di<5;di++){const sid=gA(li,di,rk);cells.push(`"${sid?sn(sid):''}"`)}
+    rows.push(cells.join(','));
+  }));
+  const ptoCells=['"PTO / Time Off"','""'];
+  for(let di=0;di<5;di++)ptoCells.push(`"${getPTO(di).map(id=>sn(id)).join(', ')}"`);
+  rows.push(ptoCells.join(','));
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`schedule-${wk(curWeek)}.csv`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+function slotPickerHtml(li){
+  if(!active||active.li!==li)return'';
+  const{di,rk}=active,date=wDates(curWeek)[di],curSid=gA(li,di,rk);
+  const roleLabel=ROLES[RKEYS.indexOf(rk)];
+  let h=`<div style="border-top:0.5px solid var(--color-border-tertiary);padding:10px 12px;background:var(--color-background-secondary);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;">
+      <span style="font-size:12px;font-weight:500;color:var(--color-text-primary);">${roleLabel}&nbsp;·&nbsp;${WDAYS[di].name} ${date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}&nbsp;·&nbsp;<span style="font-weight:400;color:var(--color-text-secondary);">${WDAYS[di].time}</span></span>
+      <button onclick="closePicker()" style="border:none;font-size:18px;padding:0 0 0 8px;line-height:1;background:none;color:var(--color-text-tertiary);">×</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">`;
+  if(!staff.length){
+    h+=`<span style="font-size:12px;color:var(--color-text-tertiary);">Add staff members first using the Staff button.</span>`;
+  }else{
+    staff.forEach(s=>{
+      const col=sc(s.id),isCur=s.id===curSid;
+      h+=`<button onclick="assign(${li},${di},'${rk}','${s.id}')" style="border:${isCur?'2px solid '+col:'0.5px solid '+col+'77'};background:${isCur?col+'22':'transparent'};color:var(--color-text-primary);">
+        <span style="width:8px;height:8px;border-radius:50%;background:${col};display:inline-block;flex-shrink:0;"></span>${s.name}${isCur?' ✓':''}
+      </button>`;
+    });
+    if(curSid)h+=`<button onclick="assign(${li},${di},'${rk}',null)" style="color:var(--color-text-danger);border-color:var(--color-border-danger);background:none;margin-left:2px;">Clear</button>`;
+  }
+  return h+`</div></div>`;
+}
+
+function ptoPicker(){
+  if(activePTO===null)return'';
+  const di=activePTO,date=wDates(curWeek)[di],current=getPTO(di);
+  let h=`<div style="border-top:0.5px solid var(--color-border-tertiary);padding:10px 12px;background:var(--color-background-secondary);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;">
+      <span style="font-size:12px;font-weight:500;color:var(--color-text-primary);">Who is off&nbsp;·&nbsp;${WDAYS[di].name} ${date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+      <button onclick="closePTOPicker()" style="border:none;font-size:18px;padding:0 0 0 8px;line-height:1;background:none;color:var(--color-text-tertiary);">×</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">`;
+  if(!staff.length){
+    h+=`<span style="font-size:12px;color:var(--color-text-tertiary);">Add staff members first.</span>`;
+  }else{
+    staff.forEach(s=>{
+      const col=sc(s.id),isOn=current.includes(s.id);
+      h+=`<button onclick="togglePTO(${di},'${s.id}')" style="border:${isOn?'2px solid '+col:'0.5px solid var(--color-border-secondary)'};background:${isOn?col+'22':'transparent'};color:var(--color-text-primary);">
+        <span style="width:8px;height:8px;border-radius:50%;background:${isOn?col:'var(--color-border-secondary)'};display:inline-block;flex-shrink:0;"></span>${s.name}${isOn?' ✓':''}
+      </button>`;
+    });
+  }
+  return h+`<button onclick="closePTOPicker()" style="margin-left:4px;">Done</button></div></div>`;
+}
+
+function dayColHdr(date,di,today,showTime){
+  const isToday=date.toDateString()===today;
+  return`<div style="border-left:0.5px solid var(--color-border-tertiary);padding:5px 4px;background:var(--color-background-secondary);text-align:center;">
+    <div style="font-size:9px;color:var(--color-text-secondary);letter-spacing:0.05em;">${WDAYS[di].name.toUpperCase()}</div>
+    <div style="font-size:13px;font-weight:${isToday?'500':'400'};color:${isToday?'var(--color-text-info)':'var(--color-text-primary)'};">${date.getDate()}</div>
+    ${showTime?`<div style="font-size:9px;color:var(--color-text-tertiary);">${WDAYS[di].time}</div>`:''}
+  </div>`;
+}
+
+function renderSched(){
+  document.getElementById('wlabel').textContent=fmtWk(curWeek);
+  const dates=wDates(curWeek),today=new Date().toDateString(),totalOpen=totalRequired();
+  let h='';
+
+  if(totalOpen>0){
+    h+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--color-background-warning);border:0.5px solid var(--color-border-warning);border-radius:var(--border-radius-md);margin-bottom:1rem;">
+      <i class="ti ti-alert-triangle" style="font-size:15px;color:var(--color-text-warning);"></i>
+      <span style="font-size:12px;color:var(--color-text-warning);font-weight:500;">${totalOpen} required slot${totalOpen!==1?'s':''} still open this week</span>
+    </div>`;
+  }else if(staff.length>0){
+    h+=`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--color-background-success);border:0.5px solid var(--color-border-success);border-radius:var(--border-radius-md);margin-bottom:1rem;">
+      <i class="ti ti-circle-check" style="font-size:15px;color:var(--color-text-success);"></i>
+      <span style="font-size:12px;color:var(--color-text-success);font-weight:500;">All required shifts are filled for this week</span>
+    </div>`;
+  }
+
+  LOCS.forEach((loc,li)=>{
+    const open=openSlots(li);
+    h+=`<div style="margin-bottom:1.25rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">`;
+    h+=`<div style="background:${LOC_BG[li]};padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:0.5px solid var(--color-border-tertiary);">
+      <span style="font-size:13px;font-weight:500;color:${LOC_FG[li]};flex:1;">${loc}</span>
+      ${open>0
+        ?`<span style="font-size:10px;font-weight:500;background:var(--color-background-warning);color:var(--color-text-warning);border:0.5px solid var(--color-border-warning);padding:2px 8px;border-radius:var(--border-radius-md);">${open} open</span>`
+        :staff.length>0?`<span style="font-size:10px;font-weight:500;color:var(--color-text-success);display:inline-flex;align-items:center;gap:3px;"><i class="ti ti-check" style="font-size:12px;"></i> Filled</span>`:''
+      }
+    </div>`;
+    h+=`<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));border-bottom:0.5px solid var(--color-border-tertiary);">`;
+    h+=`<div style="background:var(--color-background-secondary);"></div>`;
+    dates.forEach((date,di)=>{h+=dayColHdr(date,di,today,true);});
+    h+=`</div>`;
+
+    RKEYS.forEach((rk,ri)=>{
+      const isLast=ri===RKEYS.length-1,isExtra=rk==='extra',isRequired=REQUIRED.includes(rk);
+      h+=`<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));${isLast&&!(active&&active.li===li)?'':'border-bottom:0.5px solid var(--color-border-tertiary);'}">`;
+      h+=`<div style="padding:6px 10px;display:flex;flex-direction:column;justify-content:center;background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);">
+        <span style="font-size:11px;font-weight:500;color:${isExtra?'var(--color-text-tertiary)':'var(--color-text-secondary)'};">${ROLES[ri]}</span>
+        ${isExtra?'<span style="font-size:9px;color:var(--color-text-tertiary);">(optional)</span>':''}
+      </div>`;
+      dates.forEach((_,di)=>{
+        const sid=gA(li,di,rk),isAct=active&&active.li===li&&active.di===di&&active.rk===rk;
+        const col=sid?sc(sid):null,showWarn=!sid&&isRequired;
+        h+=`<div style="border-left:0.5px solid var(--color-border-tertiary);padding:5px;display:flex;align-items:center;">`;
+        if(sid){
+          h+=`<button onclick="openPicker(${li},${di},'${rk}')" style="width:100%;display:flex;align-items:center;gap:5px;padding:5px 7px;background:${col}1A;border:${isAct?'2px solid '+col:'0.5px solid '+col+'99'};border-radius:var(--border-radius-md);min-width:0;">
+            <span style="width:7px;height:7px;border-radius:50%;background:${col};flex-shrink:0;display:inline-block;"></span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--color-text-primary);">${sn(sid)}</span>
+          </button>`;
+        }else{
+          const bg=showWarn?'var(--color-background-warning)':'transparent';
+          const bdr=showWarn?`0.5px dashed var(--color-border-warning)`:`0.5px ${isExtra?'dotted':'dashed'} var(--color-border-${isAct?'primary':'secondary'})`;
+          h+=`<button onclick="openPicker(${li},${di},'${rk}')" style="width:100%;min-height:34px;padding:4px;border:${bdr};border-radius:var(--border-radius-md);background:${bg};color:${showWarn?'var(--color-text-warning)':'var(--color-text-tertiary)'};display:flex;align-items:center;justify-content:center;">
+            ${showWarn?`<i class="ti ti-alert-triangle" style="font-size:12px;"></i>`:`<i class="ti ti-plus" style="font-size:13px;"></i>`}
+          </button>`;
+        }
+        h+=`</div>`;
+      });
+      h+=`</div>`;
+    });
+    h+=slotPickerHtml(li);
+    h+=`</div>`;
+  });
+
+  /* PTO section */
+  const hasPicker=activePTO!==null;
+  h+=`<div style="margin-bottom:1.25rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">`;
+  h+=`<div style="background:var(--color-background-secondary);padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:0.5px solid var(--color-border-tertiary);">
+    <i class="ti ti-calendar-off" style="font-size:15px;color:var(--color-text-secondary);"></i>
+    <span style="font-size:13px;font-weight:500;color:var(--color-text-secondary);">PTO / Time Off</span>
+  </div>`;
+  h+=`<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));border-bottom:0.5px solid var(--color-border-tertiary);">`;
+  h+=`<div style="background:var(--color-background-secondary);"></div>`;
+  dates.forEach((date,di)=>{h+=dayColHdr(date,di,today,false);});
+  h+=`</div>`;
+  h+=`<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));${hasPicker?'border-bottom:0.5px solid var(--color-border-tertiary);':''}">`;
+  h+=`<div style="padding:6px 10px;display:flex;align-items:center;background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);">
+    <span style="font-size:11px;font-weight:500;color:var(--color-text-secondary);">Out</span>
+  </div>`;
+  dates.forEach((_,di)=>{
+    const ptoIds=getPTO(di),isAct=activePTO===di;
+    h+=`<div style="border-left:0.5px solid var(--color-border-tertiary);padding:5px;min-height:56px;">`;
+    ptoIds.forEach(sid=>{
+      const col=sc(sid);
+      h+=`<div style="display:flex;align-items:center;gap:3px;font-size:11px;background:${col}1A;border:0.5px solid ${col}99;border-radius:3px;padding:2px 4px;margin-bottom:2px;min-width:0;">
+        <span style="width:5px;height:5px;border-radius:50%;background:${col};flex-shrink:0;display:inline-block;"></span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);">${sn(sid)}</span>
+        <button onclick="togglePTO(${di},'${sid}')" style="background:none;border:none;padding:0;font-size:13px;line-height:1;color:var(--color-text-tertiary);min-width:auto;flex-shrink:0;">×</button>
+      </div>`;
+    });
+    h+=`<button onclick="openPTOPicker(${di})" style="background:none;border:none;padding:2px;color:${isAct?'var(--color-text-primary)':'var(--color-text-tertiary)'};min-width:auto;">
+      <i class="ti ti-plus" style="font-size:13px;"></i>
+    </button>`;
+    h+=`</div>`;
+  });
+  h+=`</div>`;
+  h+=ptoPicker();
+  h+=`</div>`;
+
+  document.getElementById('sched').innerHTML=h;
+}
+
+function renderStaff(){
+  const el=document.getElementById('staff-list');if(!el)return;
+  if(!staff.length){el.innerHTML='<span style="font-size:13px;color:var(--color-text-tertiary);">No staff yet.</span>';return;}
+  el.innerHTML=staff.map(s=>{
+    const c=sc(s.id);
+    return`<div style="display:flex;align-items:center;gap:5px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:4px 8px;">
+      <span style="width:8px;height:8px;border-radius:50%;background:${c};display:inline-block;"></span>
+      <span style="font-size:13px;color:var(--color-text-primary);">${s.name}</span>
+      <button onclick="removeStaff('${s.id}')" style="background:none;border:none;padding:0;font-size:14px;line-height:1;color:var(--color-text-tertiary);min-width:auto;margin-left:2px;">×</button>
+    </div>`;
+  }).join('');
+}
+
+function render(){renderSched();if(spOpen)renderStaff();}
+
+function save(){
+  try{localStorage.setItem('sched-staff',JSON.stringify(staff));}catch(e){}
+  try{localStorage.setItem('sched-data',JSON.stringify(schedule));}catch(e){}
+}
+
+function init(){
+  try{const d=localStorage.getItem('sched-staff');if(d)staff=JSON.parse(d);}catch(e){}
+  try{const d=localStorage.getItem('sched-data');if(d)schedule=JSON.parse(d);}catch(e){}
+  render();
+}
+
+init();
+</script>
+</body>
+</html>
