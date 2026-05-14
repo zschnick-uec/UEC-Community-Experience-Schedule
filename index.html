@@ -85,27 +85,25 @@ textarea::placeholder{color:#9a9a97;}
 </div>
 
 <!-- ======================================================
-     FIREBASE CONFIG
-     Replace every value below with your own project's keys.
-     You'll get these from the Firebase console in Step 4.
+     FIREBASE CONFIG — replace values with your own keys
      ====================================================== -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
 const firebaseConfig = {
-  apiKey:            "AIzaSyA0Mt7pKDVNW4eaGNnyLjDbdLHJwJSyHcs",
-  authDomain:        "ce-staff-schedule.firebaseapp.com",
-  databaseURL:       "https://ce-staff-schedule-default-rtdb.firebaseio.com",
-  projectId:         "ce-staff-schedule",
-  storageBucket:     "ce-staff-schedule.firebasestorage.app",
-  messagingSenderId: "534785803191",
-  appId:             "1:534785803191:web:35918df9a5f9c9e4f55e32"
+  apiKey:            "PASTE_YOUR_API_KEY_HERE",
+  authDomain:        "PASTE_YOUR_AUTH_DOMAIN_HERE",
+  databaseURL:       "PASTE_YOUR_DATABASE_URL_HERE",
+  projectId:         "PASTE_YOUR_PROJECT_ID_HERE",
+  storageBucket:     "PASTE_YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
+  appId:             "PASTE_YOUR_APP_ID_HERE"
 };
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// ── App state ────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────
 const LOCS=['Riverside Park','Menomonee Valley','Washington Park'];
 const LOC_BG=['var(--color-background-success)','var(--color-background-info)','var(--color-background-warning)'];
 const LOC_FG=['var(--color-text-success)','var(--color-text-info)','var(--color-text-warning)'];
@@ -121,29 +119,34 @@ const RKEYS=['lead','rec','extra'];
 const REQUIRED=['lead','rec'];
 const PAL=['#1D9E75','#7F77DD','#D85A30','#378ADD','#BA7517','#D4537E','#639922','#5DCAA5','#AFA9EC','#F0997B','#888780','#E24B4A'];
 
+// ── State ────────────────────────────────────────────────
 let staff=[],schedule={},curWeek=getMon(new Date()),active=null,activePTO=null,spOpen=false,loaded=false;
 
+// isTypingNote: true while any textarea has focus — prevents Firebase
+// listener from re-rendering the page and stealing focus mid-keystroke.
+let isTypingNote=false;
+let noteDebounceTimer=null;
+
 // ── Firebase listeners ───────────────────────────────────
-db.ref('staff').on('value', snap => {
-  staff = snap.val() ? Object.values(snap.val()) : [];
-  if(loaded) render();
+db.ref('staff').on('value',snap=>{
+  staff=snap.val()?Object.values(snap.val()):[];
+  if(loaded&&!isTypingNote)render();
 });
 
-db.ref('schedule').on('value', snap => {
-  schedule = snap.val() || {};
-  if(!loaded){ loaded=true; showApp(); }
-  render();
+db.ref('schedule').on('value',snap=>{
+  schedule=snap.val()||{};
+  if(!loaded){loaded=true;showApp();}
+  if(!isTypingNote)render();
 });
 
 function showApp(){
   document.getElementById('loading').style.display='none';
   document.getElementById('sched').style.display='block';
 }
-
-function setSyncStatus(msg, color){
+function setSyncStatus(msg,color){
   const el=document.getElementById('sync-status');
-  if(!el) return;
-  el.innerHTML=`<span style="width:7px;height:7px;border-radius:50%;background:${color};display:inline-block;"></span> ${msg}`;
+  if(!el)return;
+  el.innerHTML='<span style="width:7px;height:7px;border-radius:50%;background:'+color+';display:inline-block;"></span> '+msg;
 }
 
 // ── Helpers ──────────────────────────────────────────────
@@ -155,45 +158,52 @@ function sc(id){const i=staff.findIndex(s=>s.id===id);return i>=0?PAL[i%PAL.leng
 function sn(id){return(staff.find(s=>s.id===id)||{}).name||'';}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+// ── Data accessors ───────────────────────────────────────
 function gA(li,di,rk){return(((schedule[wk(curWeek)]||{})[li]||{})[di]||{})[rk]||null;}
 function sA(li,di,rk,sid){
   const path='schedule/'+wk(curWeek)+'/'+li+'/'+di+'/'+rk;
-  if(sid) db.ref(path).set(sid);
-  else db.ref(path).remove();
+  if(sid)db.ref(path).set(sid);else db.ref(path).remove();
 }
 function getNote(li,di){return((((schedule[wk(curWeek)]||{})[li])||{}).notes||{})[di]||'';}
 function setNote(li,di,val){
-  const path='schedule/'+wk(curWeek)+'/'+li+'/notes/'+di;
-  if(val) db.ref(path).set(val);
-  else db.ref(path).remove();
+  // Update local state immediately so the textarea value is preserved
+  const w=wk(curWeek);
+  if(!schedule[w])schedule[w]={};
+  if(!schedule[w][li])schedule[w][li]={};
+  if(!schedule[w][li].notes)schedule[w][li].notes={};
+  schedule[w][li].notes[di]=val;
+  // Debounce the Firebase write — only send after 500ms of no typing
+  clearTimeout(noteDebounceTimer);
+  noteDebounceTimer=setTimeout(()=>{
+    const path='schedule/'+w+'/'+li+'/notes/'+di;
+    if(val)db.ref(path).set(val);else db.ref(path).remove();
+  },500);
 }
+function onNoteFocus(){isTypingNote=true;}
+function onNoteBlur(){isTypingNote=false;render();}
+
 function getPTO(di){return(((schedule[wk(curWeek)]||{}).pto)||{})[di]||[];}
 function togglePTO(di,sid){
   const curr=getPTO(di).slice(),idx=curr.indexOf(sid);
-  if(idx>=0) curr.splice(idx,1); else curr.push(sid);
+  if(idx>=0)curr.splice(idx,1);else curr.push(sid);
   const path='schedule/'+wk(curWeek)+'/pto/'+di;
-  if(curr.length) db.ref(path).set(curr);
-  else db.ref(path).remove();
+  if(curr.length)db.ref(path).set(curr);else db.ref(path).remove();
 }
 function openSlots(li){let n=0;for(let di=0;di<5;di++)REQUIRED.forEach(rk=>{if(!gA(li,di,rk))n++;});return n;}
 function totalRequired(){return LOCS.reduce((sum,_,li)=>sum+openSlots(li),0);}
 
-// ── Week navigation ──────────────────────────────────────
+// ── Week nav ─────────────────────────────────────────────
 function chWeek(dir){curWeek=new Date(curWeek);curWeek.setDate(curWeek.getDate()+dir*7);active=null;activePTO=null;render();}
-
 function copyFwd(){
   const w=wk(curWeek),nxt=new Date(curWeek);nxt.setDate(nxt.getDate()+7);
-  const nwk=wk(nxt);
-  const src=schedule[w]||{};
-  db.ref('schedule/'+nwk).set(JSON.parse(JSON.stringify(src)));
+  db.ref('schedule/'+wk(nxt)).set(JSON.parse(JSON.stringify(schedule[w]||{})));
   curWeek=nxt;active=null;activePTO=null;
   const b=document.getElementById('copy-btn');
   if(b){b.textContent='\u2713 Copied!';setTimeout(()=>{b.textContent='Copy \u2192 next week';},1800);}
 }
 
-// ── Staff panel ──────────────────────────────────────────
+// ── Staff ────────────────────────────────────────────────
 function toggleStaff(){spOpen=!spOpen;document.getElementById('staff-panel').style.display=spOpen?'block':'none';renderStaff();}
-
 function addStaff(){
   const inp=document.getElementById('new-staff'),name=inp.value.trim();
   if(!name||staff.some(s=>s.name.toLowerCase()===name.toLowerCase()))return;
@@ -201,29 +211,13 @@ function addStaff(){
   db.ref('staff/'+id).set({id,name});
   inp.value='';
 }
-
 function removeStaff(id){
   db.ref('staff/'+id).remove();
-  // Also scrub from all schedules
-  const snap=schedule;
-  Object.keys(snap).forEach(wKey=>{
-    const w=snap[wKey];
+  Object.keys(schedule).forEach(wKey=>{
+    const w=schedule[wKey];
     Object.keys(w).forEach(li=>{
-      if(li==='pto'){
-        if(w.pto) Object.keys(w.pto).forEach(di=>{
-          const arr=(w.pto[di]||[]).filter(s=>s!==id);
-          db.ref('schedule/'+wKey+'/pto/'+di).set(arr.length?arr:null);
-        });
-      }else if(w[li]){
-        Object.keys(w[li]).forEach(di=>{
-          if(di==='notes')return;
-          if(w[li][di]&&typeof w[li][di]==='object'){
-            RKEYS.forEach(rk=>{
-              if(w[li][di][rk]===id) db.ref('schedule/'+wKey+'/'+li+'/'+di+'/'+rk).remove();
-            });
-          }
-        });
-      }
+      if(li==='pto'){if(w.pto)Object.keys(w.pto).forEach(di=>{const arr=(w.pto[di]||[]).filter(s=>s!==id);db.ref('schedule/'+wKey+'/pto/'+di).set(arr.length?arr:null);});}
+      else if(w[li])Object.keys(w[li]).forEach(di=>{if(di==='notes')return;if(w[li][di]&&typeof w[li][di]==='object')RKEYS.forEach(rk=>{if(w[li][di][rk]===id)db.ref('schedule/'+wKey+'/'+li+'/'+di+'/'+rk).remove();});});
     });
   });
 }
@@ -246,22 +240,17 @@ function ptoPanelHtml(){
     +'</div>'
     +'<p style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:8px;">Click a name to toggle on or off</p>'
     +'<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
-  if(!staff.length){
-    h+='<span style="font-size:13px;color:var(--color-text-tertiary);">Add staff members first using the Staff button above.</span>';
-  }else{
+  if(!staff.length){h+='<span style="font-size:13px;color:var(--color-text-tertiary);">Add staff members first using the Staff button above.</span>';}
+  else{
     staff.forEach(s=>{
       const col=sc(s.id),isOn=current.includes(s.id);
-      h+='<button onclick="togglePTO('+di+',\''+s.id+'\')" style="display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--border-radius-md);'
-        +'border:'+(isOn?'2px solid '+col:'0.5px solid var(--color-border-secondary)')+';'
-        +'background:'+(isOn?col+'22':'transparent')+';font-size:13px;">'
-        +'<span style="width:9px;height:9px;border-radius:50%;background:'+(isOn?col:'var(--color-border-secondary)')+';display:inline-block;flex-shrink:0;"></span>'
-        +s.name+(isOn?' \u2713':'')+'</button>';
+      h+='<button onclick="togglePTO('+di+',\''+s.id+'\')" style="display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--border-radius-md);border:'+(isOn?'2px solid '+col:'0.5px solid var(--color-border-secondary)')+';background:'+(isOn?col+'22':'transparent')+';font-size:13px;">'
+        +'<span style="width:9px;height:9px;border-radius:50%;background:'+(isOn?col:'var(--color-border-secondary)')+';display:inline-block;flex-shrink:0;"></span>'+s.name+(isOn?' \u2713':'')+'</button>';
     });
   }
   h+='</div>';
-  if(current.length>0) h+='<p style="font-size:11px;color:var(--color-text-secondary);margin-top:10px;">Out this day: '+current.map(id=>sn(id)).filter(Boolean).join(', ')+'</p>';
-  h+='</div>';
-  return h;
+  if(current.length>0)h+='<p style="font-size:11px;color:var(--color-text-secondary);margin-top:10px;">Out this day: '+current.map(id=>sn(id)).filter(Boolean).join(', ')+'</p>';
+  return h+'</div>';
 }
 
 // ── Export ───────────────────────────────────────────────
@@ -269,9 +258,12 @@ function exportCSV(){
   const dates=wDates(curWeek);
   const hdr=['"Location"','"Row"',...dates.map((d,i)=>'"'+WDAYS[i].name+' '+d.toLocaleDateString('en-US',{month:'numeric',day:'numeric'})+' '+WDAYS[i].time+'"')];
   const rows=[hdr.join(',')];
+  const ptoCells=['"PTO / Time Off"','""'];
+  for(let di=0;di<5;di++)ptoCells.push('"'+getPTO(di).map(id=>sn(id)).join(', ')+'"');
+  rows.push(ptoCells.join(','));
   LOCS.forEach((loc,li)=>{
     const noteCells=['"'+loc+'"','"Notes"'];
-    for(let di=0;di<5;di++) noteCells.push('"'+(getNote(li,di)||'').replace(/"/g,'""')+'"');
+    for(let di=0;di<5;di++)noteCells.push('"'+(getNote(li,di)||'').replace(/"/g,'""')+'"');
     rows.push(noteCells.join(','));
     RKEYS.forEach((rk,ri)=>{
       const cells=['"'+loc+'"','"'+ROLES[ri]+'"'];
@@ -279,15 +271,11 @@ function exportCSV(){
       rows.push(cells.join(','));
     });
   });
-  const ptoCells=['"PTO / Time Off"','""'];
-  for(let di=0;di<5;di++) ptoCells.push('"'+getPTO(di).map(id=>sn(id)).join(', ')+'"');
-  rows.push(ptoCells.join(','));
   const blob=new Blob([rows.join('\n')],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download='schedule-'+wk(curWeek)+'.csv';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  a.href=url;a.download='schedule-'+wk(curWeek)+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 
-// ── Slot picker ──────────────────────────────────────────
+// ── Slot picker HTML ─────────────────────────────────────
 function slotPickerHtml(li){
   if(!active||active.li!==li)return'';
   const{di,rk}=active,date=wDates(curWeek)[di],curSid=gA(li,di,rk),roleLabel=ROLES[RKEYS.indexOf(rk)];
@@ -296,16 +284,14 @@ function slotPickerHtml(li){
     +'<span style="font-size:12px;font-weight:500;">'+roleLabel+' \u00b7 '+WDAYS[di].name+' '+date.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' \u00b7 <span style="font-weight:400;color:var(--color-text-secondary);">'+WDAYS[di].time+'</span></span>'
     +'<button onclick="closePicker()" style="border:none;background:none;font-size:18px;padding:0 0 0 8px;line-height:1;color:var(--color-text-tertiary);">&times;</button>'
     +'</div><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
-  if(!staff.length){
-    h+='<span style="font-size:12px;color:var(--color-text-tertiary);">Add staff members first.</span>';
-  }else{
+  if(!staff.length){h+='<span style="font-size:12px;color:var(--color-text-tertiary);">Add staff members first.</span>';}
+  else{
     staff.forEach(s=>{
       const col=sc(s.id),isCur=s.id===curSid;
-      h+='<button onclick="assign('+li+','+di+',\''+rk+'\',\''+s.id+'\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--border-radius-md);'
-        +'border:'+(isCur?'2px solid '+col:'0.5px solid '+col+'77')+';background:'+(isCur?col+'22':'transparent')+';font-size:12px;">'
+      h+='<button onclick="assign('+li+','+di+',\''+rk+'\',\''+s.id+'\')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--border-radius-md);border:'+(isCur?'2px solid '+col:'0.5px solid '+col+'77')+';background:'+(isCur?col+'22':'transparent')+';font-size:12px;">'
         +'<span style="width:8px;height:8px;border-radius:50%;background:'+col+';flex-shrink:0;display:inline-block;"></span>'+s.name+(isCur?' \u2713':'')+'</button>';
     });
-    if(curSid) h+='<button onclick="assign('+li+','+active.di+',\''+rk+'\',null)" style="font-size:11px;padding:5px 10px;color:var(--color-text-danger);border-color:var(--color-border-danger);background:none;margin-left:2px;">Clear</button>';
+    if(curSid)h+='<button onclick="assign('+li+','+active.di+',\''+rk+'\',null)" style="font-size:11px;padding:5px 10px;color:var(--color-text-danger);border-color:var(--color-border-danger);background:none;margin-left:2px;">Clear</button>';
   }
   return h+'</div></div>';
 }
@@ -327,6 +313,7 @@ function renderSched(){
   const dates=wDates(curWeek),today=new Date().toDateString(),totalOpen=totalRequired();
   let h='';
 
+  // Status banner
   if(totalOpen>0){
     h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--color-background-warning);border:0.5px solid var(--color-border-warning);border-radius:var(--border-radius-md);margin-bottom:1rem;">'
       +'<i class="ti ti-alert-triangle" style="font-size:15px;color:var(--color-text-warning);"></i>'
@@ -337,6 +324,38 @@ function renderSched(){
       +'<span style="font-size:12px;color:var(--color-text-success);font-weight:500;">All required shifts are filled for this week</span></div>';
   }
 
+  // ── PTO picker (above PTO section) ──
+  h+=ptoPanelHtml();
+
+  // ── PTO section ──
+  h+='<div style="margin-bottom:1.25rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">'
+    +'<div style="background:var(--color-background-secondary);padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:0.5px solid var(--color-border-tertiary);">'
+    +'<i class="ti ti-calendar-off" style="font-size:15px;color:var(--color-text-secondary);"></i>'
+    +'<span style="font-size:13px;font-weight:500;color:var(--color-text-secondary);">PTO / Time Off</span></div>'
+    +'<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));border-bottom:0.5px solid var(--color-border-tertiary);">'
+    +'<div style="background:var(--color-background-secondary);"></div>';
+  dates.forEach((date,di)=>{h+=dayColHdr(date,di,today,false);});
+  h+='</div>'
+    +'<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));">'
+    +'<div style="padding:6px 10px;display:flex;align-items:center;background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);">'
+    +'<span style="font-size:11px;font-weight:500;color:var(--color-text-secondary);">Out</span></div>';
+  dates.forEach((_,di)=>{
+    const ptoIds=getPTO(di),isAct=activePTO===di;
+    h+='<div style="border-left:0.5px solid var(--color-border-tertiary);padding:5px;min-height:56px;'+(isAct?'background:var(--color-background-secondary);':'')+'">';
+    ptoIds.forEach(sid=>{
+      const col=sc(sid);
+      h+='<div style="display:flex;align-items:center;gap:3px;font-size:11px;background:'+col+'1A;border:0.5px solid '+col+'99;border-radius:3px;padding:2px 4px;margin-bottom:2px;min-width:0;">'
+        +'<span style="width:5px;height:5px;border-radius:50%;background:'+col+';flex-shrink:0;display:inline-block;"></span>'
+        +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+sn(sid)+'</span>'
+        +'<button onclick="togglePTO('+di+',\''+sid+'\')" style="background:none;border:none;padding:0;font-size:13px;line-height:1;color:var(--color-text-tertiary);min-width:auto;flex-shrink:0;">&times;</button></div>';
+    });
+    h+='<button onclick="openPTOPicker('+di+')" style="background:none;border:'+(isAct?'0.5px solid var(--color-border-primary)':'none')+';border-radius:4px;padding:2px 4px;display:flex;align-items:center;gap:2px;font-size:11px;color:'+(isAct?'var(--color-text-primary)':'var(--color-text-tertiary)')+';">'
+      +'<i class="ti ti-plus" style="font-size:12px;"></i>'+(isAct?'<span>editing</span>':'')+'</button>';
+    h+='</div>';
+  });
+  h+='</div></div>';
+
+  // ── Location sections ──
   LOCS.forEach((loc,li)=>{
     const open=openSlots(li);
     h+='<div style="margin-bottom:1.25rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">';
@@ -358,7 +377,12 @@ function renderSched(){
     dates.forEach((_,di)=>{
       const note=getNote(li,di);
       h+='<div style="border-left:0.5px solid var(--color-border-tertiary);padding:3px;">'
-        +'<textarea oninput="setNote('+li+','+di+',this.value)" placeholder="Add a note\u2026" style="height:52px;">'+esc(note)+'</textarea>'
+        +'<textarea'
+        +' oninput="setNote('+li+','+di+',this.value)"'
+        +' onfocus="onNoteFocus()"'
+        +' onblur="onNoteBlur()"'
+        +' placeholder="Add a note\u2026"'
+        +' style="height:52px;">'+esc(note)+'</textarea>'
         +'</div>';
     });
     h+='</div>';
@@ -392,36 +416,6 @@ function renderSched(){
     h+='</div>';
   });
 
-  // PTO picker inline
-  h+=ptoPanelHtml();
-
-  // PTO section
-  h+='<div style="margin-bottom:1.25rem;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;">'
-    +'<div style="background:var(--color-background-secondary);padding:9px 14px;display:flex;align-items:center;gap:8px;border-bottom:0.5px solid var(--color-border-tertiary);">'
-    +'<i class="ti ti-calendar-off" style="font-size:15px;color:var(--color-text-secondary);"></i>'
-    +'<span style="font-size:13px;font-weight:500;color:var(--color-text-secondary);">PTO / Time Off</span></div>'
-    +'<div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));border-bottom:0.5px solid var(--color-border-tertiary);">'
-    +'<div style="background:var(--color-background-secondary);"></div>';
-  dates.forEach((date,di)=>{h+=dayColHdr(date,di,today,false);});
-  h+='</div><div style="display:grid;grid-template-columns:82px repeat(5,minmax(0,1fr));">'
-    +'<div style="padding:6px 10px;display:flex;align-items:center;background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);">'
-    +'<span style="font-size:11px;font-weight:500;color:var(--color-text-secondary);">Out</span></div>';
-  dates.forEach((_,di)=>{
-    const ptoIds=getPTO(di),isAct=activePTO===di;
-    h+='<div style="border-left:0.5px solid var(--color-border-tertiary);padding:5px;min-height:56px;'+(isAct?'background:var(--color-background-secondary);':'')+'">';
-    ptoIds.forEach(sid=>{
-      const col=sc(sid);
-      h+='<div style="display:flex;align-items:center;gap:3px;font-size:11px;background:'+col+'1A;border:0.5px solid '+col+'99;border-radius:3px;padding:2px 4px;margin-bottom:2px;min-width:0;">'
-        +'<span style="width:5px;height:5px;border-radius:50%;background:'+col+';flex-shrink:0;display:inline-block;"></span>'
-        +'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+sn(sid)+'</span>'
-        +'<button onclick="togglePTO('+di+',\''+sid+'\')" style="background:none;border:none;padding:0;font-size:13px;line-height:1;color:var(--color-text-tertiary);min-width:auto;flex-shrink:0;">&times;</button></div>';
-    });
-    h+='<button onclick="openPTOPicker('+di+')" style="background:none;border:'+(isAct?'0.5px solid var(--color-border-primary)':'none')+';border-radius:4px;padding:2px 4px;display:flex;align-items:center;gap:2px;font-size:11px;color:'+(isAct?'var(--color-text-primary)':'var(--color-text-tertiary)')+';">'
-      +'<i class="ti ti-plus" style="font-size:12px;"></i>'+(isAct?'<span>editing</span>':'')+'</button>';
-    h+='</div>';
-  });
-  h+='</div></div>';
-
   schedEl.innerHTML=h;
 }
 
@@ -440,13 +434,9 @@ function renderStaff(){
 
 function render(){renderSched();if(spOpen)renderStaff();}
 
-// Connection status indicator
-db.ref('.info/connected').on('value', snap => {
-  if(snap.val()){
-    setSyncStatus('Live', '#1D9E75');
-  }else{
-    setSyncStatus('Reconnecting…', '#BA7517');
-  }
+// Connection status
+db.ref('.info/connected').on('value',snap=>{
+  setSyncStatus(snap.val()?'Live':'Reconnecting\u2026',snap.val()?'#1D9E75':'#BA7517');
 });
 </script>
 </body>
