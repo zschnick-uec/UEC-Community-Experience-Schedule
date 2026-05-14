@@ -132,6 +132,7 @@ db.ref('staff').on('value', snap => {
 db.ref('schedule').on('value', snap => {
   schedule = snap.val() || {};
   if(!loaded){ loaded=true; showApp(); }
+  if(document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
   render();
 });
 
