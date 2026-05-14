@@ -91,13 +91,13 @@ textarea::placeholder{color:#9a9a97;}
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script>
 const firebaseConfig = {
-  apiKey: "AIzaSyA0Mt7pKDVNW4eaGNnyLjDbdLHJwJSyHcs",
-  authDomain: "ce-staff-schedule.firebaseapp.com",
-  databaseURL: "https://ce-staff-schedule-default-rtdb.firebaseio.com",
-  projectId: "ce-staff-schedule",
-  storageBucket: "ce-staff-schedule.firebasestorage.app",
-  messagingSenderId: "534785803191",
-  appId: "1:534785803191:web:35918df9a5f9c9e4f55e32"
+  apiKey:            "PASTE_YOUR_API_KEY_HERE",
+  authDomain:        "PASTE_YOUR_AUTH_DOMAIN_HERE",
+  databaseURL:       "PASTE_YOUR_DATABASE_URL_HERE",
+  projectId:         "PASTE_YOUR_PROJECT_ID_HERE",
+  storageBucket:     "PASTE_YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
+  appId:             "PASTE_YOUR_APP_ID_HERE"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -124,19 +124,18 @@ let staff=[],schedule={},curWeek=getMon(new Date()),active=null,activePTO=null,s
 
 // isTypingNote: true while any textarea has focus — prevents Firebase
 // listener from re-rendering the page and stealing focus mid-keystroke.
-let isTypingNote=false;
-let noteDebounceTimer=null;
+let editingNoteKey=null;
 
 // ── Firebase listeners ───────────────────────────────────
-db.ref('staff').on('value',snap=>{
-  staff=snap.val()?Object.values(snap.val()):[];
-  if(loaded&&!isTypingNote)render();
+db.ref('staff').on('value', snap => {
+  staff = snap.val() ? Object.values(snap.val()) : [];
+  if(loaded && !editingNoteKey) render();
 });
 
-db.ref('schedule').on('value',snap=>{
-  schedule=snap.val()||{};
-  if(!loaded){loaded=true;showApp();}
-  if(!isTypingNote)render();
+db.ref('schedule').on('value', snap => {
+  schedule = snap.val() || {};
+  if(!loaded){ loaded=true; showApp(); }
+  if(!editingNoteKey) render();
 });
 
 function showApp(){
@@ -179,8 +178,19 @@ function setNote(li,di,val){
     if(val)db.ref(path).set(val);else db.ref(path).remove();
   },500);
 }
-function onNoteFocus(){isTypingNote=true;}
-function onNoteBlur(){isTypingNote=false;render();}
+function onNoteFocus(li,di){ editingNoteKey=li+'-'+di; }
+
+function onNoteBlur(li,di,val){
+  editingNoteKey=null;
+  const w=wk(curWeek);
+  if(!schedule[w])schedule[w]={};
+  if(!schedule[w][li])schedule[w][li]={};
+  if(!schedule[w][li].notes)schedule[w][li].notes={};
+  schedule[w][li].notes[di]=val;
+  const path='schedule/'+w+'/'+li+'/notes/'+di;
+  if(val)db.ref(path).set(val);else db.ref(path).remove();
+  render();
+}
 
 function getPTO(di){return(((schedule[wk(curWeek)]||{}).pto)||{})[di]||[];}
 function togglePTO(di,sid){
@@ -378,9 +388,8 @@ function renderSched(){
       const note=getNote(li,di);
       h+='<div style="border-left:0.5px solid var(--color-border-tertiary);padding:3px;">'
         +'<textarea'
-        +' oninput="setNote('+li+','+di+',this.value)"'
-        +' onfocus="onNoteFocus()"'
-        +' onblur="onNoteBlur()"'
+        +' onfocus="onNoteFocus('+li+','+di+')"'
+	+' onblur="onNoteBlur('+li+','+di+',this.value)"'
         +' placeholder="Add a note\u2026"'
         +' style="height:52px;">'+esc(note)+'</textarea>'
         +'</div>';
